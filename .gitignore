@@ -1,13 +1,25 @@
 # Node.js
 node_modules/
 dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Environment files
+.env
 client/.env
 server/.env
+*.env.local
 
-# Logs
-*.log
+# Media and Uploads (IMPORTANT: don't push large files)
+server/uploads/
+server/temp_audio/
+
+# VibeVoice & Python
+VibeVoice/
+**/venv/
+**/__pycache__/
+*.pyc
 
 # OS-specific
 .DS_Store

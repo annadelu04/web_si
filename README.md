@@ -1,66 +1,98 @@
-# MERN Authentication System 🔐
+# 🌈 Storie Amiche
 
-A secure and modern full-stack authentication system built using the **MERN Stack** (MongoDB, Express.js, React.js, Node.js). This project provides robust authentication with JWT, protected routes, and security best practices for real-world production apps.
-           
-<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/d317db2c-7772-4079-8a4e-baf2288a88ca" />
-<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/248e4ee2-1b24-4865-855f-aba4491624f6" />
-<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/2adfb67d-5cfb-438d-80ae-8bca8a3ffea2" />
-<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/4bcb33d7-83c0-41f5-9e30-bfef1261f813" />
-              
+**Storie Amiche** è una piattaforma web innovativa progettata per supportare bambini con autismo e neurodivergenze attraverso l'uso delle **Storie Sociali**. Il sistema facilita la comunicazione, l'apprendimento di routine quotidiane e la gestione delle emozioni attraverso un'interfaccia colorata, intuitiva e accessibile.
 
-                     
----                  
-                                
-## 🚀 Features
-                  
-- 🔐 **JWT (JSON Web Token) Authentication**
-- 🔄 **User Login & Registration** with hashed passwords (bcrypt)
-- ✅ **Protected Routes** for authenticated users only
-- 💾 **MongoDB** with Mongoose for flexible data models
-- ⚙️ **Express.js** API with proper middlewares
-- 🌐 **React.js Frontend** using Context API or Redux
-- 📦 **Node.js Backend** with modular route handling
-- 📬 **Error Handling** with user-friendly messages
-- 🧠 **Token Storage** via HTTP-only cookies or localStorage
-- 🔄 **Auto Login** on page refresh (token-based auth)
-- 🚫 **Logout Functionality**
-- 🔐 Secure headers & CORS enabled
+## 🚀 Caratteristiche Principali
+
+- 📖 **Editor di Storie Dinamico**: Crea storie personalizzate con testi, immagini e video.
+- 🎧 **Narrazione con IA (VibeVoice)**: Genera automaticamente l'audio della storia con voci naturali (maschili e femminili).
+- 🧩 **Gioco delle Sequenze Interattivo**: Un gioco di riordino delle scene per allenare la logica e la comprensione temporale.
+- 🎨 **Interfaccia Accessibile**: Design colorato, tessere grandi e supporti visivi per facilitare l'uso da parte dei bambini.
+- 👩‍⚕️ **Profilo Terapista**: Strumenti per revisionare le storie e monitorare i progressi.
+- 🔐 **Sistema di Autenticazione Completo**: Accesso sicuro per genitori e terapisti.
 
 ---
 
 ## 🧱 Tech Stack
 
 **Frontend:**
-- React.js
-- Axios
-- Tailwind CSS 
-- React Router DOM
+- **React.js**: Per un'interfaccia reattiva e moderna.
+- **Tailwind CSS**: Per un design elegante e responsivo.
+- **Context API**: Per la gestione globale dello stato.
+- **Axios**: Per le chiamate API al backend.
 
 **Backend:**
-- Node.js
-- Express.js
-- MongoDB (with Mongoose)
-- JSON Web Token (JWT)
-- HTTP-Only cookies
-- Bcrypt for password hashing
-- dotenv for environment variables
-- CORS middleware
+- **Node.js & Express**: Il motore dell'applicazione.
+- **MongoDB**: Per il salvataggio sicuro di storie e profili.
+- **JWT & HTTP-Only Cookies**: Per la massima sicurezza dell'autenticazione.
+- **VibeVoice (Python)**: Integrazione IA locale per la sintesi vocale.
 
 ---
 
-## 🛠️ Installation & Setup
+## 🛠️ Installazione e Configurazione
 
-###  Step 1: Install Dependencies
-Install all packages in both `client/` and `server/` folders:  
-- cd client
-- npm i
-- 
-- cd server
-- npm i 
+> [!IMPORTANT]
+> **PRIMO PASSO FONDAMENTALE:** 
+> Prima di fare qualsiasi altra cosa, devi eseguire lo script di configurazione automatica(Setup.py). Questo script verificherà che tu abbia tutto il necessario e installerà le dipendenze per te.
 
-### step 2 : Add .env file 
-read the .env.example file and create .env file based on the .env.example file 
+### 1. Esegui lo Script di Setup 🚀
+Assicurati di avere Python installato, poi apri il terminale nella cartella principale del progetto ed esegui:
 
-### step 3 : For Client - npm run dev
+```bash
+python setup.py
+```
 
-### step 4 : For Server - node server.js
+Questo script farà tutto il lavoro sporco per te:
+- ✅ **Installa le dipendenze** Node.js per Frontend e Backend.
+- ✅ **Configura l'ambiente Python** per l'Intelligenza Artificiale (VibeVoice).
+- ✅ **Crea le cartelle** necessarie per i file audio.
+---
+### 2. Configurazione Variabili d'Ambiente (.env) 🌐
+Prima di avviare il server, è necessario configurare le variabili d'ambiente per il corretto funzionamento delle email (OTP e Reset Password). Crea un file `.env` nella cartella `server/` (se non esiste già) e aggiungi i seguenti valori:
+
+```env
+# Indirizzo email per l'autenticazione SMTP
+SMTP_USER=
+# Password applicativa per l'invio sicuro (Gmail App Password)
+SMTP_PASS=
+# Email visualizzata come mittente
+SENDER_EMAIL=
+```
+
+> [!NOTE]
+> Se usi Gmail, dovrai generare una "Password per le App" dalle impostazioni di sicurezza del tuo account Google.
+
+---
+
+### 3. Avvio del Progetto 🏁
+Una volta completato il setup, puoi avviare il sito. Avrai bisogno di due terminali aperti:
+
+#### Terminale 1: Backend (Server)
+```bash
+cd server
+node server.js
+```
+*Il server partirà sulla porta 4000.*
+
+#### Terminale 2: Frontend (Sito Web)
+```bash
+cd client
+npm run dev
+```
+*Il sito sarà accessibile all'indirizzo mostrato nel terminale (solitamente http://localhost:5173).*
+
+---
+
+### 3. Note Aggiuntive e Prerequisiti
+Se lo script `setup.py` dovesse darti errori, verifica di avere installato:
+- **Node.js** (v16 o superiore)
+- **Python** (v3.8 o superiore)
+- **MongoDB** (Deve essere in esecuzione localmente o avere una stringa di connessione valida)
+
+---
+
+## 🤝 Contribuire
+Siamo sempre aperti a miglioramenti! Se hai idee o trovi dei bug, apri una *Issue* o invia una *Pull Request*.
+
+## 📝 Licenza
+Progetto realizzato con ❤️ per il supporto terapeutico.
