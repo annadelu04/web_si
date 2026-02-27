@@ -1,40 +1,34 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState } from "react";  // useContext: Serve per leggere i dati globali (es."Chi è loggato?")
+                                                      //useState: Serve per ricordare cose temporanee solo di questo componente
 import { assets } from "../assets/assets";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom"; 
 import { appContext } from "../context/appContext";
 import axios from "axios";
-import { toast } from "react-toastify";
+import { toast } from "react-toastify";          //toast: Fa apparire le notifiche pop-up colorate 
 
-/**
- * @component
- * COMPONENTE: NAVBAR
- * Barra di navigazione superiore presente su tutte le pagine (o quasi).
- * Gestisce la navigazione, il logout, e mostra lo stato dell'utente (Avatar, Nome).
- * @returns {JSX.Element} L'elemento Navbar.
- */
+
+ /* COMPONENTE: NAVBAR -- Barra di navigazione superiore presente su tutte le pagine (o quasi).
+ Gestisce la navigazione, il logout, e mostra lo stato dell'utente (Avatar, Nome).
+*/
+
 const Navbar = () => {
   const navigate = useNavigate();
   // Accesso allo stato globale (utente loggato, dati utente, funzioni di logout)
   const { userData, backendUrl, setIsLoggedin, setUserdata, getUserData } = useContext(appContext);
 
-  // Stato per gestire il caricamento durante l'invio dell'email di verifica
+  // Blocca i pulsanti mentre il sistema lavora per evitare click multipli.
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /**
-   * @desc    Invia un'email contenente il codice OTP per la verifica dell'account.
-   *          Previene l'invio multiplo gestendo lo stato `isSubmitting`.
-   *          In caso di successo, reindirizza l'utente alla pagina `/email-verify`.
-   * @async
-   * @function sendVerificationOtp
-   * @returns {Promise<void>}
+  /* Invia un'email contenente il codice OTP per la verifica dell'account.
+   In caso di successo, reindirizza l'utente alla pagina `/email-verify`.
    */
   const sendVerificationOtp = async () => {
     if (isSubmitting) return; // Evita click multipli
 
     try {
       setIsSubmitting(true);
-      axios.defaults.withCredentials = true;
-
+      //Diciamo ad Axios di portarsi dietro i cookie di sessione. altrimenti il server non saprebbe chi sta chiedendo di verificare l'email.
+      axios.defaults.withCredentials = true;   
       const { data } = await axios.post(
         backendUrl + "/api/auth/send-verify-otp"
       );
@@ -49,26 +43,16 @@ const Navbar = () => {
     } catch (error) {
       toast.error(error.message);
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false);  //sblocchiamo il pulsante
     }
   };
 
-  /**
-   * @desc    Esegue il processo di logout.
-   *          Se la sessione corrente appartiene a un profilo bambino (`isChildActive`), esegue
-   *          un logout "parziale", riportando l'interfaccia allo stato del genitore senza eseguire
-   *          il logout globale dall'applicazione.
-   *          Se l'utente è un genitore o un terapista, esegue il logout completo ripulendo il cookie
-   *          e reindirizzando alla home page.
-   * @async
-   * @function logout
-   * @returns {Promise<void>}
-   */
+  //Esegue il processo di logout.
   const logout = async () => {
     try {
       axios.defaults.withCredentials = true;
 
-      // Se l'utente è in "Modalità Bambino" (profilo figlio attivo)
+      // Se l'utente è in "Modalità Bambino" (profilo figlio attivo) esegue un logout "parziale"
       if (userData && userData.isChildActive) {
         // Logout "parziale": torna al profilo genitore
         await axios.post(backendUrl + "/api/user/logout-child");
@@ -77,11 +61,12 @@ const Navbar = () => {
         return;
       }
 
-      // Logout completo (Utente Adulto)
+      // Logout completo (Utente Adulto) -- ripulisce i cookie e reindirizza alla home page.
+  
       const { data } = await axios.post(backendUrl + "/api/auth/logout");
 
       if (data.success) {
-        setIsLoggedin(false);
+        setIsLoggedin(false);  //siamo ospiti
         setUserdata(false);
         navigate("/");
         toast.info("Logout effettuato");
@@ -93,10 +78,11 @@ const Navbar = () => {
 
   return (
     <div className="w-full flex justify-between items-center p-4 sm:p-6 sm:px-24 max-h-20 bg-gradient-to-r from-pink-300 to-purple-400">
+     
       {/* LOGO E LINK DI NAVIGAZIONE */}
       <div className="flex items-center gap-6">
         <div
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/")}  //logo cliccabile e porta alla Home
           className="flex items-center gap-2 cursor-pointer transition-transform hover:scale-105"
         >
           <span className="text-3xl">🌈</span>
@@ -104,36 +90,37 @@ const Navbar = () => {
             STORIE AMICHE
           </span>
         </div>
-        {userData && (
+        {userData && ( //Mostra il menu SOLO se l'utente è loggato
           <ul className="flex gap-4 sm:gap-6">
-            {!userData.isChildActive ? (
+
+            {!userData.isChildActive ? (  
               // MENU GENITORE / TERAPEUTA
               <>
                 <li onClick={() => navigate('/newStory')} className="hover:text-gray-700 cursor-pointer font-medium">Nuova Storia</li>
                 <li onClick={() => navigate('/profile')} className="hover:text-gray-700 cursor-pointer font-medium">Profilo</li>
                 <li onClick={() => navigate('/')} className="hover:text-gray-700 cursor-pointer font-medium">Home</li>
 
-                {/* Link Area Bambini (solo se non è terapeuta, che non gestisce figli propri direttamente) */}
+                {/* Link Area Bambini (Se sei un terapeuta, NON vedi "Area Bambini") */}
                 {userData.tipo_utente !== 'terapeuta' && (
                   <li onClick={() => navigate('/child-select')} className="hover:text-gray-700 cursor-pointer font-medium bg-green-200 px-3 py-1 rounded-full">👶 Area Bambini</li>
                 )}
               </>
             ) : (
-              // MENU BAMBINO (Modalità Semplificata)
+              // MENU BAMBINO (Modalità Semplificata) -- link gigante alla sua bacheca
               <li onClick={() => navigate('/child-dashboard')} className="hover:text-gray-700 cursor-pointer font-black text-lg bg-white/60 px-6 py-2 rounded-full border-2 border-white shadow-sm transition-all hover:scale-105">🏠 La mia Bacheca</li>
             )}
           </ul>
         )}
       </div>
 
-      {/* ZONA UTENTE (Avatar e Dropdown) */}
+      {/* ZONA UTENTE -- Se l'utente è loggato, mostra l'avatar. Altrimenti mostra il bottone Login */}
       {userData ? (
         <div className={`flex justify-center items-center text-white cursor-pointer font-black rounded-full relative group shadow-lg transition-all hover:scale-110 ${userData.isChildActive ? 'w-14 h-14 text-2xl bg-orange-500 border-4 border-white' : 'w-10 h-10 text-xl bg-purple-900'}`}>
           {/* Iniziale Utente */}
           {userData.name?.[0]?.toUpperCase() || 'U'}
 
-          {/* MENU A TENDINA (Hover) */}
-          <div className={`absolute hidden group-hover:block top-0 right-0 z-10 pt-10 ${userData.isChildActive ? 'w-56' : 'w-32'}`}>
+          {/* MENU A TENDINA (Hover) -- Se è bambino il cerchio dell'avatar è ARANCIONE*/}  
+          <div className={`absolute hidden group-hover:block top-0 right-0 z-10 pt-10 ${userData.isChildActive ? 'w-56' : 'w-32'}`}> 
             <ul className={`list-none p-2 m-0 bg-gradient-to-tr from-purple-400 to-red-600 text-white font-black rounded-xl shadow-2xl border-2 border-white/20 ${userData.isChildActive ? 'text-lg' : 'text-sm'}`}>
 
               {/* Opzione Verifica Email (se non verificata) */}
@@ -159,7 +146,8 @@ const Navbar = () => {
           </div>
         </div>
       ) : (
-        // PULSANTE LOGIN (Se non loggato)
+        
+        // PULSANTE LOGIN (Se non sei loggato)
         <button
           onClick={() => navigate("/login")}
           className="flex items-center gap-2 border bg-gradient-to-r from-pink-200 to-pink-400 border-gray-600 rounded-full px-6 py-2 hover:scale-105 transition-all shadow-sm text-gray-800 font-medium"

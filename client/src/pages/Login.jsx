@@ -1,9 +1,9 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState } from "react";    //useState: Per gestire i dati del modulo mentre l'utente scrive.
 import { assets } from "../assets/assets";
 import { useNavigate, useLocation } from "react-router-dom";
 import { appContext } from "../context/appContext";
 import axios from "axios";
-import { toast } from "react-toastify";
+import { toast } from "react-toastify";       //mostrA messaggi di errore o successo
 
 // PAGINA: LOGIN & REGISTRAZIONE
 // Unica schermata che gestisce sia l'accesso che la creazione dell'account.
@@ -15,7 +15,8 @@ const Login = () => {
   const location = useLocation();
 
   // --- STATO DEL FORM ---
-  const [state, setState] = useState("Login"); // Toggle tra "Login" e "Sign Up"
+  const [state, setState] = useState("Login"); // Decide cosa mostrare tra "Login" e "Sign Up"
+  //Variabili per salvare quello che l'utente scrive nei campi input.
   const [name, setName] = useState("");
   const [surname, setSurname] = useState("");
   const [email, setEmail] = useState("");
@@ -25,24 +26,21 @@ const Login = () => {
   const [userType, setUserType] = useState("Adulto"); // Default
 
   // UI States
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);  //showPassword: Se vero, mostra la password in chiaro
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- GESTIONE INVIO FORM ---
+  // --- GESTIONE INVIO FORM  - parte quando premi "Invio" o clicchi sul bottone. ---
   const onsubmitHandler = async (e) => {
     try {
-      e.preventDefault();
+      e.preventDefault(); //Impedisce al browser di ricaricare la pagina e ci fa usare React
       setIsSubmitting(true); // Disabilita il bottone durante l'invio
-
-      // Fondamentale: abilita l'invio dei cookie verso il backend
-      axios.defaults.withCredentials = true;
-
+      axios.defaults.withCredentials = true;   //abilita l'invio dei cookie verso il backend
       // Dove andare dopo il login? (Home o pagina precedente protetta)
       const targetPath = location.state?.from || "/";
 
       if (state === "Sign Up") {
         // --- LOGICA REGISTRAZIONE ---
-        const { data } = await axios.post(backendUrl + "/api/auth/register", {
+        const { data } = await axios.post(backendUrl + "/api/auth/register", {   //Invia TUTTI i dati alla rotta /register.
           name,
           surname,
           email,
@@ -59,8 +57,10 @@ const Login = () => {
           toast.error(data.message);
         }
       } else {
-        // --- LOGICA LOGIN ---
-        const { data } = await axios.post(backendUrl + "/api/auth/login", {
+
+
+        // --- LOGICA LOGIN  -- Invia solo email e password alla rotta /login. ---
+        const { data } = await axios.post(backendUrl + "/api/auth/login", {  
           email,
           password,
         });
@@ -86,7 +86,7 @@ const Login = () => {
       setIsSubmitting(false);
     }
   };
-
+       //Sfondo sfumato e Logo in alto a sinistra che riporta alla Home
   return (
     <div className="bg-gradient-to-br from-blue-200 to-pink-400 min-w-screen min-h-screen flex flex-col justify-center items-center">
       {/* LOGO CLIACBILE (Torna alla Home) */}
@@ -97,7 +97,7 @@ const Login = () => {
         className="absolute left-5 sm:left-20 top-0 w-28 sm:w-32 cursor-pointer"
       />
 
-      {/* BOX FORM */}
+      {/* BOX FORM  -- Il titolo cambia dinamicamente in base allo stato (state) */}
       <div
         className=" bg-gradient-to-br from-pink-200  to-purple-400 border 
       p-10 rounded-xl shadow-xl w-full sm:w-96 border-slate-500 text-slate-200 text-sm"
@@ -114,7 +114,7 @@ const Login = () => {
 
         <form onSubmit={onsubmitHandler}>
 
-          {/* CAMPI EXTRA SOLO PER 'SIGN UP' */}
+          {/* CAMPI EXTRA SOLO PER 'SIGN UP'  -- Renderizzazione Condizionale*/}
           {state === "Sign Up" && (
             <>
               {/* Nome */}
@@ -143,7 +143,7 @@ const Login = () => {
                 />
               </div>
 
-              {/* Menu a Cascata (Ruolo) */}
+              {/* Menu a Cascata (Ruolo) -- Permette di scegliere se registrarsi come Genitore o Terapeuta.*/}
               <div className="w-full mb-4 flex items-center gap-3 px-5 py-2.5 rounded-full bg-[#3a4a53]">
                 <img src={assets.person_icon} alt="" />
                 <select
@@ -181,7 +181,8 @@ const Login = () => {
               placeholder="Enter Password"
               required
             />
-            {/* Toggle Visibilità Password */}
+
+            {/* Toggle Visibilità Password -- cambiamo il type dell'input da "password" (pallini neri) a "text" (leggibile).*/}
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
@@ -199,8 +200,8 @@ const Login = () => {
               )}
             </button>
           </div>
-
-          {state === 'Login' && (
+          
+          {state === 'Login' && ( //password dimenticata -- appare solo nel Login
             <p
               onClick={() => navigate("/reset-password")}
               className="mb-4 cursor-pointer text-indigo-500"
@@ -213,13 +214,13 @@ const Login = () => {
             className={`w-full rounded-full py-2.5 bg-gradient-to-r from-indigo-500 to-purple-800 text-white font-medium ${isSubmitting
               ? "bg-gray-400 cursor-not-allowed border-2 border-blue-500 outline outline-blue-400"
               : "bg-blue-600 hover:bg-blue-700"
-              }`}
+              }`} //Il testo del bottone è "Login" o "Sign Up". Se sta inviando (isSubmitting), diventa grigio
           >
             {state}
           </button>
         </form>
 
-        {/* TOGGLE REGISTRAZIONE / LOGIN */}
+        {/* TOGGLE REGISTRAZIONE / LOGIN  -- passare da una modalità all'altra */}
         {state === "Sign Up" ? (
           <p className="mt-4 text-xs text-center">
             Already have an account?{" "}

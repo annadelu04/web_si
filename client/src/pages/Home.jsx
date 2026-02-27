@@ -10,7 +10,7 @@ import Header from '../components/Header'
  * che contiene a sua volta la lista/ricerca delle storie.
  * @returns {JSX.Element} Struttura della home page.
  */
-const Home = () => {
+const Home = () => {   //Arrow Function
   return (
     <div className="min-h-screen bg-gradient-to-r from-pink-100 to-purple-300">
       <Navbar /> {/* Menu di navigazione in alto */}
