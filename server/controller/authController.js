@@ -1,383 +1,315 @@
-import jwt from 'jsonwebtoken';
-import bcryptjs from 'bcryptjs';
-import { userModel } from '../models/userModel.js';
-import transporter from '../config/nodemailer.js';
-import { EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from '../config/emailTemplates.js';
+import jwt from 'jsonwebtoken';                   // JWT Validator: Genera/decodifica token stringhe sicuri per Autenticazione Stateless
+import bcryptjs from 'bcryptjs';                    // Hashing Engine: Cripta password monodirezionalmente (Salt+Hash) evitando furti database psw in chiaro
+import { userModel } from '../models/userModel.js'; // ODM Mongoose: Model x collection "users". (Es. UserModel.Find)
+import transporter from '../config/nodemailer.js';  // Modulo Helper: Istanza pre-connessa SMPT per Email automatiche (Aruba/Gmail)
+import { EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from '../config/emailTemplates.js'; // Macro Stringhe HTML formattate 
 
-/**
- * @desc    Registra un nuovo utente (Genitore o Terapeuta).
- *          Esegue la validazione dei dati, controlla se l'email esiste già, genera l'hash della password
- *          e salva il nuovo utente. Alla fine, genera un token JWT per il login automatico e invia una mail di benvenuto.
- * @route   POST /api/auth/register
- * @access  Public
- * @param {Object} req - L'oggetto della richiesta, contenente name, surname, email, password, userType nel body.
- * @param {Object} res - L'oggetto della risposta, restituisce l'esito della registrazione.
- * @returns {Object} JSON con { success: true, message: '...' } in caso di successo.
- */
+// ============================================================
+// ENDPOINT: REGISTRAZIONE UTENTE "SIGN-UP"
+// Architettura: Express Request(req)/Response(res) CallBack
+// ============================================================
 export const register = async (req, res) => {
-   // 1. Estrazione dati dal body
-   const { name, surname, email, password, userType } = req.body;
 
-   // 2. Validazione input
-   if (!name || !surname || !email || !password || !userType) {
-      return res.json({ success: false, error: "Dettagli mancanti. Compila tutti i campi." });
-   }
+    // DESTRUTTURAZIONE POST BODY (Parsa JSON della Chiamata Fetch Lato Client React)
+    const { name, surname, email, password, userType } = req.body;
 
-   try {
-      // 3. Controllo esistenza utente tramite email anagrafica
-      const existingUser = await userModel.findOne({ 'anagrafica.email': email });
+    // VALIDAZIONE BASE (Campi vuoti)
+    if (!name || !surname || !email || !password || !userType) {
+        return res.json({ success: false, error: "Dettagli mancanti. Compila tutti i campi." });
+    }
 
-      if (existingUser) {
-         return res.json({ success: false, error: "Utente già registrato con questa email" });
-      }
+    try {
+        // PREVENZIONE DUPLICATI DB. Cerca 1 riga che matcha chiave Annidata "Anagrafica.email"
+        const existingUser = await userModel.findOne({ 'anagrafica.email': email });
 
-      // 4. Cifratura Password (Hashing)
-      const hashedPassword = await bcryptjs.hash(password, 10);
+        if (existingUser) {
+            return res.json({ success: false, error: "Utente già registrato con questa email" });
+        }
 
-      // 5. Creazione Utente
-      const registerUser = new userModel({
-         tipo_utente: userType.toLowerCase(), // Normalizza input (Bambino -> bambino)
+        // HASHER ASINCRONO PASSWORD (Valore SALT= 10 . Bilancia CPU Time Speso per cifrare vs Sicurezza Cracking Forza Bruta)
+        const hashedPassword = await bcryptjs.hash(password, 10);
 
-         anagrafica: {
-            nome: name,
-            cognome: surname,
-            email: email,
-            // codice_fiscale: opzionale
-         },
-         login: {
-            password: hashedPassword,
-            nuovo_utente: true
-         },
-         profilo: {
-            livello: 1,
-            punti_totali: 0,
-            avatar: ""
-         },
-         // Campi sicurezza iniziali
-         isAccountVerified: false,
-         verifyOtp: '',
-         verifyOtpExpireAt: 0,
-         resetOtp: '',
-         resetOtpExpireAt: 0
-      });
+        // CREAZIONE FATTUALE IN RAM OGGETTO MONGOOSE(MONGODB DOC STRUCT) USANDO NEW "USERMODEL"
+        const registerUser = new userModel({
+            tipo_utente: userType.toLowerCase(),
+            anagrafica: { nome: name, cognome: surname, email: email },
+            login: { password: hashedPassword, nuovo_utente: true },
+            profilo: { livello: 1, punti_totali: 0, avatar: "" },
+            isAccountVerified: false,
+            // Valori vuoti/falsi di partenza x sistema Recovery/Verifica 2FA (OTP)
+            verifyOtp: '', verifyOtpExpireAt: 0, resetOtp: '', resetOtpExpireAt: 0
+        });
 
-      await registerUser.save();
+        // SALVATAGGIO REALE STORAGE (Insert Document to CollectionMongo). Il "Await" Blocca Node Js finchè il DB cluster non risponde "Ok Salvaot"
+        await registerUser.save();
 
-      // 6. Generazione Token JWT (Login automatico post-registrazione)
-      const token = jwt.sign({ id: registerUser._id }, process.env.JWT_SECRETE, { expiresIn: "7d" });
+        // AUTOLOGIN DOPO REGISTRAZIONE: Crea un Token Valido 7gg Nascondendo ("Firmando con Secret key app") ID di Mongo Netto _id
+        const token = jwt.sign({ id: registerUser._id }, process.env.JWT_SECRETE, { expiresIn: "7d" });
 
-      // Imposta cookie HTTP-Only sicuro
-      res.cookie('token', token, {
-         httpOnly: true,
-         secure: process.env.NODE_ENV === 'production',
-         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-         maxAge: 7 * 24 * 60 * 60 * 1000
-      });
+        // ATTACCO COOKIE AL BROWSER UTENTE ("Res.Cookie"). E un header nativo http. "HttpOnly" blocca script Hacker Javascript (XSS Attack)
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
 
-      // 7. Invio Email di Benvenuto
-      const sendEmail = {
-         from: process.env.SENDER_EMAIL,
-         to: email,
-         subject: "Benvenuto in Storie Amiche!",
-         html: `<h2>Ciao ${name}, il tuo account (${userType}) è stato creato con successo!</h2>`
-      };
+        // OPZIONE ASINCRONA EMAIL WELCOME: Usa Helper Trasporter x Inviare email al Genitore
+        const sendEmail = {
+            from: process.env.SENDER_EMAIL,
+            to: email,
+            subject: "Benvenuto in Pepper Feel Good!",
+            html: `<h2>Ciao ${name}, il tuo account (${userType}) è stato creato con successo!</h2>`
+        };
 
-      try {
-         await transporter.sendMail(sendEmail);
-      } catch (emailError) {
-         console.log("Errore invio email (non bloccante):", emailError);
-      }
+        // TryCatch Silenzioso. Se server Aruba cade.. logghiamo errore di Console NodeJS Server.. MA RITORNIAMO UGUALMENTE {Success True} In fondo per far giocare cmq utente e non bloccare App !
+        try {
+            await transporter.sendMail(sendEmail);
+        } catch (emailError) {
+            console.log("Errore invio email (non bloccante):", emailError);
+        }
 
-      return res.json({ success: true, message: "Account creato con successo!" });
+        // ESITO API FINALE -> RISPOSTA X REACT
+        return res.json({ success: true, message: "Account creato con successo!" });
 
-   } catch (error) {
-      console.log(error);
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Autenticazione utente e creazione sessione (Login).
- *          Verifica l'esistenza dell'email, controlla la corrispondenza della password tramite bcrypt
- *          e restituisce un token JWT configurato come cookie HTTP-Only.
- * @route   POST /api/auth/login
- * @access  Public
- * @param {Object} req - L'oggetto della richiesta, contenente email e password.
- * @param {Object} res - L'oggetto della risposta, restituisce il token nel cookie e l'esito del login.
- * @returns {Object} JSON con { success: true, message: '...', user: {...} } in caso di successo.
- */
+// ============================================================
+// ENDPOINT: AUTENTICA (LOGIN)
+// ============================================================
 export const login = async (req, res) => {
-   const { email, password } = req.body;
 
-   if (!email || !password) {
-      return res.json({ success: false, message: "Email e password richieste" });
-   }
+    // ESTRAZIONE E VALIDAZIONE PAYLOAD DA REACT FORM POST 
+    const { email, password } = req.body;
+    if (!email || !password) {
+        return res.json({ success: false, message: "Email e password richieste" });
+    }
 
-   try {
-      // 1. Cerca utente per email
-      const existingUser = await userModel.findOne({ 'anagrafica.email': email });
+    try {
+        // 1. RICERCA UTENTE E CHECK ESITENZA 
+        const existingUser = await userModel.findOne({ 'anagrafica.email': email });
+        if (!existingUser) {
+            return res.json({ success: false, message: "Email non valida" }); // "Ambiguità voluta". Non diciam a un Hacker bruteforcer se l'email esiste o no. Si dice "Generico Invalid Credentz."
+        }
 
-      if (!existingUser) {
-         return res.json({ success: false, message: "Email non valida" });
-      }
+        // 2. CHECK COMPARAZIONE PASSWORD HASHATE MATEMATICHE 
+        const matchPass = await bcryptjs.compare(password, existingUser.login.password);
+        if (!matchPass) {
+            return res.json({ success: false, message: "Password errata" });
+        }
 
-      // 2. Verifica password
-      const matchPass = await bcryptjs.compare(password, existingUser.login.password);
+        // 3. GENERAZIONE E STAMPO IN FRONTE BROWSER CLIENT (COOKIE) DEL NOSTRO PASSAPORTO JWT 
+        const token = jwt.sign({ id: existingUser._id }, process.env.JWT_SECRETE, { expiresIn: "7d" });
 
-      if (!matchPass) {
-         return res.json({ success: false, message: "Password errata" });
-      }
+        res.cookie('token', token, {
+            httpOnly: true, secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', maxAge: 7 * 24 * 60 * 60 * 1000
+        });
 
-      // 3. Genera e invia Token
-      const token = jwt.sign({ id: existingUser._id }, process.env.JWT_SECRETE, { expiresIn: "7d" });
+        // 4. FINE LOGICA -> RESITUISCE SUCESS + JSON (Metadati base di Utente  x Frontend Ui Store senza db call ) 
+        return res.json({
+            success: true, message: "Login effettuato",
+            user: { name: existingUser.anagrafica.nome, email: existingUser.anagrafica.email, tipo_utente: existingUser.tipo_utente }
+        });
 
-      res.cookie('token', token, {
-         httpOnly: true,
-         secure: process.env.NODE_ENV === 'production',
-         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-         maxAge: 7 * 24 * 60 * 60 * 1000
-      });
-
-      return res.json({
-         success: true,
-         message: "Login effettuato con successo",
-         user: {
-            name: existingUser.anagrafica.nome,
-            email: existingUser.anagrafica.email,
-            tipo_utente: existingUser.tipo_utente
-         }
-      });
-
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Effettua il logout dell'utente cancellando il cookie contenente il token JWT.
- * @route   POST /api/auth/logout
- * @access  Private
- * @param {Object} req - L'oggetto della richiesta.
- * @param {Object} res - L'oggetto della risposta, utilizzato per pulire i cookie.
- * @returns {Object} JSON con l'esito dell'operazione.
- */
+// ============================================================
+// ENDPOINT: DISCONESSIONE (LOG OUT)
+// ============================================================
 export const logOut = async (req, res) => {
-   try {
-      // Cancella il cookie del token
-      res.clearCookie('token', {
-         httpOnly: true,
-         secure: process.env.NODE_ENV === 'production',
-         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
-      });
-
-      return res.json({ success: true, message: "Logout effettuato" });
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    try {
+        // NON CE UNA 'SESSIONE SERVER DA CANCELLARE'. Semplice istruisco Browser Utente di svuotare `ClearCookie("token")` la cache Crome/Safari bloccando l auth!
+        res.clearCookie('token', {
+            httpOnly: true, secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
+        });
+        return res.json({ success: true, message: "Logout effettuato" });
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Richiede l'invio di un OTP (codice a 6 cifre) all'email dell'utente per la verifica dell'account.
- *          L'OTP generato ha una validità di 24 ore.
- * @route   POST /api/auth/send-verify-otp
- * @access  Private
- * @param {Object} req - L'oggetto della richiesta, contiene l'ID utente (req.userId).
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con l'esito dell'operazione.
- */
+// ============================================================
+// ENDPOINT OTP: GENERATORE E MITTENTE EMAIL OTP VALIDAZIONE (2FA ACC GENITORE)
+// ============================================================
 export const sendVerifyOtp = async (req, res) => {
-   try {
-      const userId = req.userId;
-      const user = await userModel.findById(userId);
+    try {
+        // "Req.Userid" = Variabile magica! E inettata nel Header da Middleware Interceptor JWT Token check prima del controller stesso.!
+        const userId = req.userId;
+        const user = await userModel.findById(userId); // Load db record 
 
-      if (user.isAccountVerified) {
-         return res.json({ success: false, message: "Account già verificato" });
-      }
+        if (user.isAccountVerified) {
+            // Blocca spamming inutilie se db record  ha gia spunto blu 
+            return res.json({ success: false, message: "Account già verificato" });
+        }
 
-      // Genera codice a 6 cifre
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
+        // RNG FAKE MATH: Creazione Numero Casuale Random Intero "Stringato"  Limitato in range {100.000 -- 999.000} (Quindi a 6 cifre)
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
 
-      user.verifyOtp = otp;
-      user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000; // Scade in 24 ore
-      await user.save();
+        // ASSEGNAZIOEN AL MODELLO DB E SAVE TIME METADATA 
+        user.verifyOtp = otp;
+        user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000; // Formula DateNow(Unix current ms) + 24Ore convertite in Ms! Scadenza timer.
+        await user.save();
 
-      const mailOption = {
-         from: process.env.SENDER_EMAIL,
-         to: user.anagrafica.email,
-         subject: "Codice OTP Verifica Account",
-         html: EMAIL_VERIFY_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", user.anagrafica.email)
-      };
-      await transporter.sendMail(mailOption);
+        // TEMPLATE ENGINE BASE: Sostituisce la scritta stringa {{otp}} del megafole html di un Design Email con la stringa "634842" !
+        const mailOption = {
+            from: process.env.SENDER_EMAIL, to: user.anagrafica.email, subject: "Codice OTP Verifica Account",
+            html: EMAIL_VERIFY_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", user.anagrafica.email)
+        };
 
-      return res.json({ success: true, message: "OTP di verifica inviato" });
+        await transporter.sendMail(mailOption); // Smpt Aruba Dispatch Event 
 
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+        return res.json({ success: true, message: "OTP di verifica inviato" });
+
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Verifica l'OTP inserito dall'utente per confermare l'indirizzo email.
- *          Imposta `isAccountVerified` a true se l'OTP è corretto e non scaduto.
- * @route   POST /api/auth/verify-account
- * @access  Private
- * @param {Object} req - L'oggetto della richiesta, contiene l'OTP nel body e l'ID utente in req.userId.
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con l'esito della verifica.
- */
+// ============================================================
+// ENDPOINT OTP: VERIFICATORE (VALIDA CHI CERC DI DIGITARE PIN 6 CIFRE)
+// ============================================================
 export const verifyOtp = async (req, res) => {
-   const { otp } = req.body;
-   const userId = req.userId;
+    // ESTRAZIONE (dal Payload react fetch : L'otp.. / Dal Jwt Req. Middleware = L 'id del player richiedente)
+    const { otp } = req.body;
+    const userId = req.userId;
 
-   if (!otp) return res.json({ success: false, message: "OTP mancante" });
+    if (!otp) return res.json({ success: false, message: "OTP mancante" });
 
-   try {
-      const user = await userModel.findById(userId);
-      if (!user) return res.json({ success: false, message: "Utente non trovato" });
+    try {
+        const user = await userModel.findById(userId);
+        if (!user) return res.json({ success: false, message: "Utente non trovato" });
 
-      if (user.verifyOtp === '' || user.verifyOtp !== otp) {
-         return res.json({ success: false, message: "OTP non valido" });
-      }
+        // CONTROLLO ERROR STATE "NON MATCH" / "VUOTO"
+        if (user.verifyOtp === '' || user.verifyOtp !== otp) {
+            return res.json({ success: false, message: "OTP non valido" });
+        }
 
-      if (user.verifyOtpExpireAt < Date.now()) {
-         return res.json({ success: false, message: "OTP scaduto" });
-      }
+        // CONTROLLO SCADENZA: Tempo attuale > VecchioRecordTimer + 24h ?? 
+        if (user.verifyOtpExpireAt < Date.now()) {
+            return res.json({ success: false, message: "OTP scaduto" });
+        }
 
-      // Conferma verifica
-      user.isAccountVerified = true;
-      user.verifyOtp = '';
-      user.verifyOtpExpireAt = 0;
+        // SUCCESS ! MUTATION DEL DOCUMENTO MONGODB RECORD 
+        user.isAccountVerified = true;
+        user.verifyOtp = '';           // Pulisco db e cache string token cosi non viene hackato \ riusato x bug
+        user.verifyOtpExpireAt = 0;
+        await user.save();
 
-      await user.save();
+        return res.json({ success: true, message: "Email verificata con successo" });
 
-      return res.json({ success: true, message: "Email verificata con successo" });
-
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Endpoint di controllo auth. Utilizzato dal Frontend per verificare se l'utente
- *          possiede un token JWT valido e non è scaduto. Ritorna sempre success: true se il middleware passa.
- * @route   GET /api/auth/is-auth
- * @access  Private
- * @param {Object} req - L'oggetto della richiesta.
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con { success: true }.
- */
+// ============================================================
+// ENDPOINT: RUTINES CHECK AUTH (GUARD FRONTEND)
+// ============================================================
 export const isUserAuthenticate = async (req, res) => {
-   try {
-      return res.json({ success: true });
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    try {
+        // E un ENDPOINT VUOTO chiamato costantemente dAL fRONTEND pET CHECKARE SE JWT ALLEGATO ALLA RICHIESTA DA PROPRIO COOKIE E ANCORA VALIDO OP PURE SCADUTO "True O false" risposte booleane
+        return res.json({ success: true });
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Richiede l'invio di un OTP all'email dell'utente per resettare la password.
- *          L'OTP generato ha una validità di 15 minuti.
- * @route   POST /api/auth/send-reset-otp
- * @access  Public
- * @param {Object} req - L'oggetto della richiesta, contenente l'email nel body.
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con l'esito dell'operazione (successo/errore).
- */
+// ============================================================
+// ENPOINT PASSWORD RESET OTP: INVIA PIN PER SCORDATO PSW (NON C E SESSIONE ATTIVA)
+// ============================================================
 export const sendResetOtp = async (req, res) => {
-   const { email } = req.body;
-   if (!email) return res.json({ success: false, message: "Email mancante" });
+    // QUI SI USA SOLO `Email` DAL POST REACT E NON `req.UserId` perchè UTENTE E SCONNESSO E NON SAPPIAMO CHI E SE JWT! (Lo cerca nel Db via email Form Textbox input)
+    const { email } = req.body;
+    if (!email) return res.json({ success: false, message: "Email mancante" });
 
-   try {
-      const user = await userModel.findOne({ 'anagrafica.email': email });
-      if (!user) return res.json({ success: false, message: "Utente non trovato" });
+    try {
+        const user = await userModel.findOne({ 'anagrafica.email': email });
+        if (!user) return res.json({ success: false, message: "Utente non trovato" });
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
-      user.resetOtp = otp;
-      user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000; // Scade in 15 minuti
-      await user.save();
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        user.resetOtp = otp;
+        user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000; // Timer Cortissimo per sicurezza: 15 MIns per un reset Psw ! 
+        await user.save();
 
-      const mailOption = {
-         from: process.env.SENDER_EMAIL,
-         to: user.anagrafica.email,
-         subject: "Codice OTP Reset Password",
-         html: PASSWORD_RESET_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", user.anagrafica.email)
-      };
-      await transporter.sendMail(mailOption);
+        const mailOption = {
+            from: process.env.SENDER_EMAIL, to: user.anagrafica.email, subject: "Codice OTP Reset Password",
+            html: PASSWORD_RESET_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", user.anagrafica.email)
+        };
+        await transporter.sendMail(mailOption);
 
-      return res.json({ success: true, message: "OTP inviato via email" });
+        return res.json({ success: true, message: "OTP inviato via email" });
 
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Verifica se l'OTP fornito per il reset della password è valido e non scaduto.
- *          Questo passaggio serve per confermare l'identità prima di permettere il cambio password effettivo.
- * @route   POST /api/auth/verify-reset-otp
- * @access  Public
- * @param {Object} req - L'oggetto della richiesta, contenente email e otp nel body.
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con l'esito della verifica dell'OTP.
- */
+// ============================================================
+// ENPOINT PASSWORD RESET OTP: CHECK 
+// ============================================================
 export const verifyResetOtp = async (req, res) => {
-   const { email, otp } = req.body;
-   if (!email || !otp) return res.json({ success: false, message: "Dettagli mancanti" });
+    // Si aspetta dal Client Sia L'email (chiesta form) che l OtP
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.json({ success: false, message: "Dettagli mancanti" });
 
-   try {
-      const user = await userModel.findOne({ 'anagrafica.email': email });
-      if (!user) return res.json({ success: false, message: "Utente non trovato" });
+    try {
+        const user = await userModel.findOne({ 'anagrafica.email': email });
+        if (!user) return res.json({ success: false, message: "Utente non trovato" });
 
-      if (user.resetOtp === '' || user.resetOtp !== otp) {
-         return res.json({ success: false, message: "OTP non valido" });
-      }
+        // CONTROLLI STANDARD Visti PRIMA OTP MATCH 
+        if (user.resetOtp === '' || user.resetOtp !== otp) {
+            return res.json({ success: false, message: "OTP non valido" });
+        }
 
-      if (user.resetOtpExpireAt < Date.now()) {
-         return res.json({ success: false, message: "OTP scaduto" });
-      }
+        if (user.resetOtpExpireAt < Date.now()) {
+            return res.json({ success: false, message: "OTP scaduto" });
+        }
 
-      return res.json({ success: true, message: "OTP verificato" });
+        // ESITO API
+        return res.json({ success: true, message: "OTP verificato" });
 
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
 
-/**
- * @desc    Reimposta la password dell'utente. Richiede l'email, un OTP valido e la nuova password in chiaro.
- *          La nuova password viene criptata prima del salvataggio nel database.
- * @route   POST /api/auth/reset-password
- * @access  Public
- * @param {Object} req - L'oggetto della richiesta, contenente email, otp e newPassword nel body.
- * @param {Object} res - L'oggetto della risposta.
- * @returns {Object} JSON con l'esito dell'operazione.
- */
+// ============================================================
+// ENDPOINT DI END EVENT (SALVA VERA NUOVA PASSWORD SUBITO DOPO CHECK VERIFY-RESET OK) 
+// ============================================================
 export const resetPassword = async (req, res) => {
-   const { email, otp, newPassword } = req.body;
-   if (!email || !otp || !newPassword) return res.json({ success: false, message: "Dettagli mancanti" });
 
-   try {
-      const user = await userModel.findOne({ 'anagrafica.email': email });
-      if (!user) return res.json({ success: false, message: "Utente non trovato" });
+    // Richiede in blocco form "Nuova Pss" e vecchio OTP per prevenire Hack postumi in sessione 
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) return res.json({ success: false, message: "Dettagli mancanti" });
 
-      if (user.resetOtp === '' || user.resetOtp !== otp) {
-         return res.json({ success: false, message: "OTP non valido" });
-      }
+    try {
+        const user = await userModel.findOne({ 'anagrafica.email': email });
+        if (!user) return res.json({ success: false, message: "Utente non trovato" });
 
-      if (user.resetOtpExpireAt < Date.now()) {
-         return res.json({ success: false, message: "OTP scaduto" });
-      }
+        // SECURE CHECK DOPPIO GUARDIA ! Il Server ricontrolla che l OTP inviatoci  (nel post) fosse quello vero se per caso Utente Bypassava Pagina form FrontEnd usando un "Postman" \ hacker API 
+        if (user.resetOtp === '' || user.resetOtp !== otp) { return res.json({ success: false, message: "OTP non valido" }); }
+        if (user.resetOtpExpireAt < Date.now()) { return res.json({ success: false, message: "OTP scaduto" }); }
 
-      const hashedPassword = await bcryptjs.hash(newPassword, 10);
+        // HASHA LA NUOVA STRINGA IN ARRIVO PASSWORD
+        const hashedPassword = await bcryptjs.hash(newPassword, 10);
 
-      user.login.password = hashedPassword;
-      user.resetOtp = '';
-      user.resetOtpExpireAt = 0;
-      await user.save();
+        // RIPULITURA RECORD RESET (Svuoto timer ecc) AND ASSEGNAZIONE NUOVA HASHPASW NEL RAM VIRTUAL DOC MODEL
+        user.login.password = hashedPassword;
+        user.resetOtp = '';
+        user.resetOtpExpireAt = 0;
 
-      return res.json({ success: true, message: "Password reimpostata con successo" });
+        await user.save(); // Salva VIRTUAL RAM DATA  in -> DB MONGODB
+        return res.json({ success: true, message: "Password reimpostata" });
 
-   } catch (error) {
-      return res.json({ success: false, message: error.message });
-   }
+    } catch (error) {
+        return res.json({ success: false, message: error.message });
+    }
 };
