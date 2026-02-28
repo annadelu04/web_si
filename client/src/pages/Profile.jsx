@@ -1,10 +1,12 @@
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react'; //useEffect hook che si attiva quando il componenete viene caricato. Usato per scaricare i dati dal server
 import Navbar from '../components/Navbar';
 import { appContext } from '../context/appContext';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
+//icone vettoriali da react-icons (es. occhio per vedere, cestino per eliminare).
 import { FaEye, FaEdit, FaTrash, FaSignOutAlt, FaUserPlus, FaPen, FaUserMd, FaCheck, FaTimes, FaChild, FaSearch } from 'react-icons/fa';
+//Importiamo le finestre modali (popup) che useremo:
 import EditProfileModal from './EditProfileModal';
 import DeleteProfileModal from '../components/DeleteProfileModal';
 import AddChildModal from '../components/AddChildModal';
@@ -13,12 +15,11 @@ import AssignChildrenForm from '../components/AssignChildrenForm';
 
 const Profile = () => {
     // --- 1. CONFIGURAZIONE E HOOKS ---
-    const { userData, backendUrl, getUserData } = useContext(appContext);
+    const { userData, backendUrl, getUserData } = useContext(appContext); //Estraiamo dal contesto i dati fondamentali
     const navigate = useNavigate();
 
     // --- 2. GESTIONE STATO (STATE MANAGEMENT) ---
-
-    // Stato Condiviso (Modali Profilo)
+    // Variabili booleane (Vero/Falso) che decidono se le finestre popup sono visibili.
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -32,20 +33,22 @@ const Profile = () => {
     const [therapistsList, setTherapistsList] = useState([]); // Risultati ricerca terapeuti
     const [myTherapists, setMyTherapists] = useState([]); // Terapeuti attualmente collegati
     const [assignChildrenModalOpen, setAssignChildrenModalOpen] = useState(false);
+    //Quando clicchi "Assegna", qui salva quale storia hai scelto per passarla alla modale.
     const [selectedStoryForAssign, setSelectedStoryForAssign] = useState(null);
 
     // --- STATO LATO TERAPISTA ---
     const [pendingStories, setPendingStories] = useState([]);     // Storie in attesa di approvazione
-    const [pendingInvitations, setPendingInvitations] = useState([]); // Inviti da parte dei genitori
-    const [assignedFamilies, setAssignedFamilies] = useState([]);  // Famiglie (Genitore + Figli) seguite
+    const [pendingInvitations, setPendingInvitations] = useState([]); // Richieste di collegamento da nuovi genitori.
+    const [assignedFamilies, setAssignedFamilies] = useState([]);  // Le famiglie che il terapeuta sta seguendo.
     const [rejectReason, setRejectReason] = useState('');           // Motivo rifiuto storia
     const [selectedStoryIdForReject, setSelectedStoryIdForReject] = useState(null);
 
     // --- STATO VERIFICA ACCOUNT ---
-    const [showOtpModal, setShowOtpModal] = useState(false);
+    const [showOtpModal, setShowOtpModal] = useState(false); //Se mostrare il popup per inserire il codice email.
     const [currentPlayingAudio, setCurrentPlayingAudio] = useState(null);
 
-    // --- 3. EFFETTI (DATA FETCHING) ---
+
+    // --- 3. EFFETTI (DATA FETCHING) -- Controlla che tipo di utente sei---
     useEffect(() => {
         if (userData) {
             if (userData.tipo_utente === 'terapeuta') {
@@ -57,20 +60,19 @@ const Profile = () => {
     }, [userData, backendUrl]);
 
     // --- 4. FUNZIONI GENITORE (PARENT ACTIONS) ---
-
     // Carica dati dashboard Genitore
-    const fetchParentData = async () => {
+    const fetchParentData = async () => {  //tre chiamate al server in parallelo
         try {
             axios.defaults.withCredentials = true;
-            // Get Stories
+            // Scarica le storie create dall'utente
             const storiesRes = await axios.get(backendUrl + '/api/story/my-stories');
             if (storiesRes.data.success) setStories(storiesRes.data.stories);
 
-            // Get Children
+            // Scarica i figli.
             const childrenRes = await axios.get(backendUrl + '/api/user/children');
             if (childrenRes.data.success) setMyChildren(childrenRes.data.children);
 
-            // Get My Therapists
+            // Scarica i terapeuti collegati.
             const therapistsRes = await axios.get(backendUrl + '/api/user/therapists');
             if (therapistsRes.data.success) setMyTherapists(therapistsRes.data.therapists);
 
@@ -79,7 +81,7 @@ const Profile = () => {
         }
     };
 
-    // Cerca terapeuti nella piattaforma
+    // Chiede al server la lista di tutti i terapeuti disponibili e apre la modale per mostrarli.
     const handleSearchTherapists = async () => {
         try {
             const { data } = await axios.post(backendUrl + '/api/user/search-therapists');
@@ -92,7 +94,7 @@ const Profile = () => {
         }
     };
 
-    // Aggiungi un terapeuta (Invia Richiesta di collegamento)
+    // Aggiungi un terapeuta (Invia Richiesta di collegamento tramite mail)
     const addTherapist = async (email) => {
         try {
             const { data } = await axios.post(backendUrl + '/api/user/add-therapist', { therapistEmail: email });
@@ -112,7 +114,7 @@ const Profile = () => {
     const handleChildSwitch = async (child) => {
         let pinToSend = '';
 
-        if (child.pin) {
+        if (child.pin) {   //Se il bambino ha un PIN, apre un prompt del browser per chiederlo.
             const enteredPin = prompt(`Inserisci il PIN per ${child.name}:`);
             if (!enteredPin) return; // Annullato dall'utente
             pinToSend = enteredPin;
@@ -169,7 +171,7 @@ const Profile = () => {
     };
 
     // Approva una storia inviata da un genitore
-    const handleApprove = async (storyId) => {
+    const handleApprove = async (storyId) => {  //Dice al server che la storia è OK (diventa pubblica)
         try {
             const { data } = await axios.post(`${backendUrl}/api/approval/approve/${storyId}`);
             if (data.success) {
@@ -201,7 +203,7 @@ const Profile = () => {
         }
     };
 
-    // Rispondi a un invito di collegamento (Accetta/Rifiuta)
+    // Accetta o rifiuta la richiesta di un genitore di collegarsi.
     const handleRespondInvitation = async (parentId, action) => {
         try {
             const { data } = await axios.post(`${backendUrl}/api/approval/respond-invitation`, { parentId, action });
@@ -239,7 +241,6 @@ const Profile = () => {
             toast.error("Errore disconnessione");
         }
     };
-
 
     // RENDER: Loading State
     if (!userData) return <div className="text-center p-10">Caricamento...</div>;
@@ -305,6 +306,7 @@ const Profile = () => {
         );
     }
 
+
     const isTherapist = userData.tipo_utente === 'terapeuta';
 
     return (
@@ -313,26 +315,26 @@ const Profile = () => {
 
             <div className="container mx-auto px-4 py-8 max-w-6xl">
 
-                {/* --- HEADER PROFILO (Dati Utente & Bottoni Azione) --- */}
+                {/* --- HEADER PROFILO (Dati Utente & Bottoni Azione) --- comune sia per Genitori che per Terapeuti. Mostra chi sei.*/}
                 <div className="bg-white rounded-3xl shadow-lg p-8 mb-8 flex flex-col md:flex-row justify-between items-center gap-6">
-                    <div className="flex items-center gap-6 w-full md:w-auto">
+                    <div className="flex items-center gap-6 w-full md:w-auto"> 
                         <div className="w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-md">
-                            {userData.name ? userData.name[0].toUpperCase() : 'U'}
-                        </div>
+                            {userData.name ? userData.name[0].toUpperCase() : 'U'} 
+                        </div> 
                         <div>
                             <h1 className="text-3xl font-bold text-gray-800">Ciao, {userData.name}!</h1>
                             <p className="text-gray-500">{userData.email}</p>
                             <span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-semibold ${isTherapist ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700'}`}>
                                 {isTherapist ? '👨‍⚕️ Terapeuta' : '👪 Genitore'}
-                            </span>
+                            </span> 
                         </div>
                     </div>
-
+                    {/* Bottone per aprire la modale di modifica.*/}
                     <div className="flex flex-wrap gap-3 justify-center md:justify-end w-full md:w-auto">
                         <button onClick={() => setIsEditModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 shadow-md transition-all">
                             <FaEdit /> Modifica Profilo
                         </button>
-
+                    {/* se sei genitore, mostra due bottoni extra: "Aggiungi Bambino" e "Trova Terapista" */}
                         {!isTherapist && (
                             <>
                                 <button onClick={() => setIsAddChildModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 shadow-md transition-all">
@@ -343,7 +345,7 @@ const Profile = () => {
                                 </button>
                             </>
                         )}
-
+                    {/*Bottoni rossi/grigi per eliminare l'account e fare logout. */}
                         <button onClick={() => setIsDeleteModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-all">
                             <FaTrash /> Elimina
                         </button>
@@ -518,7 +520,7 @@ const Profile = () => {
                                                 <h3 className="font-bold text-lg mb-2 truncate pr-24">{story.title}</h3>
                                                 <p className="text-xs text-gray-500 mb-4 line-clamp-2">{story.description}</p>
 
-                                                {/* Toggle Pubblico/Privato */}
+                                                {/* bottone Pubblico/Privato */}
                                                 <div className="flex items-center gap-2 mb-4">
                                                     <button
                                                         onClick={async () => {
@@ -652,43 +654,44 @@ const Profile = () => {
                                 👶 I Tuoi Bambini
                             </h2>
                             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {myChildren.map(child => (
+
+                                {myChildren.map(child => ( //CARD: Crea un rettangolo cliccabile per ogni figlio trovato.
                                     <div
                                         key={child._id}
                                         className="bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 relative group cursor-pointer hover:shadow-lg transition-all"
                                         onClick={() => handleChildSwitch(child)}
-                                    >
+                                    > 
                                         <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center text-2xl overflow-hidden">
-                                            {child.avatar.startsWith('http') ?
+                                            {child.avatar.startsWith('http') ? //se il bambino ha una foto mostra quella. Altrimenti mostra l'icona generica
                                                 <img src={child.avatar} alt={child.name} className="w-full h-full object-cover" /> :
                                                 <FaChild className="text-orange-400" />
                                             }
                                         </div>
-                                        <div>
+                                        <div> {/* Info bambino e PIN */}
                                             <p className="font-bold text-gray-800">{child.name}</p>
                                             <p className="text-xs text-gray-500">PIN: {child.pin ? 'Reimposta' : 'Nessuno'}</p>
                                         </div>
                                         <button
                                             onClick={async (e) => {
                                                 e.stopPropagation();
-                                                if (window.confirm(`Eliminare profilo di ${child.name}?`)) {
+                                                if (window.confirm(`Eliminare profilo di ${child.name}?`)) {  //elimina profilo
                                                     try {
                                                         await axios.delete(backendUrl + `/api/user/delete-child/${child._id}`);
                                                         toast.success("Eliminato");
                                                         fetchParentData();
-                                                    } catch (e) { toast.error("Errore eliminazione"); }
+                                                    } catch (e) { toast.error("Errore eliminazione"); } 
                                                 }
                                             }}
                                             className="absolute top-2 right-2 text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                             title="Elimina bambino"
-                                        >
-                                            <FaTrash size={12} />
+                                        >{/*cestino in alto a destra per eliminare il profilo del bambino.*/}
+                                            <FaTrash size={12} />  
                                         </button>
                                     </div>
                                 ))}
                                 <button onClick={() => setIsAddChildModalOpen(true)} className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:border-indigo-400 transition-colors">
-                                    <FaUserPlus /> Aggiungi
-                                </button>
+                                    <FaUserPlus /> Aggiungi 
+                                </button>  {/*pulsante tratteggiato per aggiungere nuovo bambino */}
                             </div>
                         </section>
 
@@ -696,14 +699,15 @@ const Profile = () => {
                         <section>
                             <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
                                 📖 Le Tue Storie
-                            </h2>
-                            {stories.length === 0 ? (
+                            </h2> 
+                            {stories.length === 0 ? ( //se non ci sono storie, mostra un testo. Altrimenti apre una griglia.
                                 <p className="text-gray-500">Non hai ancora creato storie.</p>
                             ) : (
                                 <div className="grid md:grid-cols-3 gap-6">
                                     {stories.map(story => (
                                         <div key={story._id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative">
-                                            {/* Status Badge (Approvata/In Attesa/Rifiutata) */}
+                                          
+                                            {/* etichetta colorata se (Approvata/In Attesa/Rifiutata) */}
                                             <div className="absolute top-4 right-4 text-xs font-bold px-2 py-1 rounded bg-gray-100">
                                                 {story.status === 'APPROVED' && <span className="text-green-600 flex items-center gap-1"><FaCheck /> Pubblicata</span>}
                                                 {story.status === 'PENDING' && <span className="text-yellow-600 flex items-center gap-1">⏳ In attesa</span>}
@@ -713,7 +717,7 @@ const Profile = () => {
                                             <h3 className="font-bold text-lg mb-1 truncate pr-20">{story.title}</h3>
                                             <p className="text-xs text-gray-500 mb-4 line-clamp-2">{story.description}</p>
 
-                                            {/* Toggle Pubblico/Privato */}
+                                            {/* Tasto Pubblico/Privato */}
                                             <div className="flex items-center gap-2 mb-3">
                                                 <button
                                                     onClick={async () => {
@@ -749,7 +753,7 @@ const Profile = () => {
                                                 </div>
                                             )}
 
-                                            {/* Pulsanti Azioni */}
+                                            {/* Bottoni Azione (Modifica, Vedi, Elimina) */}
                                             <div className="flex flex-col gap-2 mt-2">
                                                 <div className="flex gap-2">
                                                     <button
@@ -898,7 +902,7 @@ const Profile = () => {
                 </div>
             )}
 
-            {/* Modale Assegna Storia ai Figli */}
+            {/* Modale Assegna Storia ai Figli -- disegna il popup solo se hai cliccato "Assegna"*/}
             {assignChildrenModalOpen && selectedStoryForAssign && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full">
@@ -916,7 +920,7 @@ const Profile = () => {
                                 <FaTimes size={24} />
                             </button>
                         </div>
-
+                        {/*Mostra il titolo della storia scelta in un box viola. */}
                         <div className="mb-6 p-4 bg-purple-50 rounded-xl">
                             <h3 className="font-bold text-purple-800 mb-1">{selectedStoryForAssign.title}</h3>
                             <p className="text-xs text-purple-600">{selectedStoryForAssign.description}</p>
@@ -939,7 +943,7 @@ const Profile = () => {
                                     Aggiungi il primo bambino
                                 </button>
                             </div>
-                        ) : (
+                        ) : ( //Se hai figli, chiama il componente AssignChildrenForm  per farti scegliere a chi darla.
                             <AssignChildrenForm
                                 children={myChildren}
                                 storyId={selectedStoryForAssign._id}
