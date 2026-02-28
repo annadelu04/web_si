@@ -19,6 +19,7 @@ if sys.stdout.encoding != 'utf-8':
         # Fallback per versioni vecchie di Python o ambienti limitati
         pass
 
+
 def print_header(text, emoji="🚀"):
     try:
         print("\n" + "="*60)
