@@ -8,13 +8,35 @@ from pathlib import Path
 import time
 import re
 
+import sys
+import io
+
+# Forza l'encoding UTF-8 per la console per evitare errori con le Emoji su Windows
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, io.UnsupportedOperation):
+        # Fallback per versioni vecchie di Python o ambienti limitati
+        pass
+
 def print_header(text, emoji="🚀"):
-    print("\n" + "="*60)
-    print(f"{emoji} {text.upper()}")
-    print("="*60)
+    try:
+        print("\n" + "="*60)
+        print(f"{emoji} {text.upper()}")
+        print("="*60)
+    except UnicodeEncodeError:
+        # Fallback senza emoji se l'encoding fallisce ancora
+        print("\n" + "="*60)
+        print(f"{text.upper()}")
+        print("="*60)
 
 def print_step(step_num, total_steps, text):
-    print(f"\n[{step_num}/{total_steps}] {text}")
+    try:
+        print(f"\n[{step_num}/{total_steps}] {text}")
+    except UnicodeEncodeError:
+        # Fallback sicuro
+        clean_text = text.encode('ascii', 'ignore').decode('ascii')
+        print(f"\n[{step_num}/{total_steps}] {clean_text}")
 
 def repair_env_file(env_file, base_path, vv_root=None, python_bin=None, venv_path=None):
     """Ripara o completa un file .env esistente con percorsi REALI"""
@@ -420,20 +442,12 @@ def check_vibevoice(base_path):
         return False, vv_root
     
     # Verifica struttura
-    required_files = [
-        "setup.py",
-        "demo/realtime_model_inference_from_file.py",
-    ]
+    if not (vv_root / "demo/realtime_model_inference_from_file.py").exists():
+        print(f"   ⚠️ VibeVoice incompleto. File demo mancante.")
+        return False, vv_root
     
-    missing_files = []
-    for file in required_files:
-        if not (vv_root / file).exists():
-            missing_files.append(file)
-    
-    if missing_files:
-        print(f"   ⚠️ VibeVoice incompleto. File mancanti:")
-        for f in missing_files:
-            print(f"      • {f}")
+    if not (vv_root / "setup.py").exists() and not (vv_root / "pyproject.toml").exists():
+        print(f"   ⚠️ VibeVoice incompleto. Manca sia setup.py che pyproject.toml.")
         return False, vv_root
     
     print(f"   ✅ VibeVoice trovato e completo")
@@ -599,6 +613,146 @@ def get_gmail_app_password():
     
     return email, app_password
 
+def apply_vibevoice_patches(vv_root):
+    """Applica patch di compatibilità al codice di VibeVoice"""
+    print(f"\n   🛠️ APPLICAZIONE PATCH DI COMPATIBILITÀ VIBEVOICE")
+    print("   " + "-"*50)
+    
+    # 1. Patch modeling_vibevoice_streaming_inference.py
+    inference_file = Path(vv_root) / "vibevoice" / "modular" / "modeling_vibevoice_streaming_inference.py"
+    if inference_file.exists():
+        print(f"   📝 Patching {inference_file.name}...")
+        try:
+            with open(inference_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Aggiungi blocco compatibilità versioni
+            if "NEEDS_CACHE_PATCH" not in content:
+                patch_header = """# ============================================================================
+# Transformers Compatibility Layer (Added by Pepper Feel Good setup)
+# ============================================================================
+import packaging.version
+import transformers
+import inspect
+TRANSFORMERS_VERSION = packaging.version.parse(transformers.__version__)
+NEEDS_CACHE_PATCH = TRANSFORMERS_VERSION >= packaging.version.parse("4.57.0")
+"""
+                # Inserisci dopo gli import iniziali
+                content = content.replace("from transformers.utils import logging", "from transformers.utils import logging\n" + patch_header)
+                
+                # Patch get_mask_sizes
+                old_get_mask = """    def get_mask_sizes(self, cache_position):
+        \"\"\"Return KV length and offset for mask creation.\"\"\"
+        kv_length = self.key_cache.shape[2] if self.key_cache is not None else 0
+        return kv_length, 0"""
+                
+                new_get_mask = """    def get_mask_sizes(self, cache_position):
+        \"\"\"Return KV length and offset for mask creation.\"\"\"
+        seq_len = self.key_cache.shape[2] if self.key_cache is not None else 0
+        if NEEDS_CACHE_PATCH:
+            max_pos = cache_position[-1] + 1 if cache_position is not None and cache_position.numel() > 0 else seq_len
+            return max(seq_len, max_pos), 0
+        return seq_len, 0
+    
+    def get_seq_length(self):
+        return self.key_cache.shape[2] if self.key_cache is not None else 0"""
+                
+                content = content.replace(old_get_mask, new_get_mask)
+                
+                # Patch _ensure_cache_has_layers
+                old_ensure = """def _ensure_cache_has_layers(cache):
+    \"\"\"
+    Ensure the cache has all required attributes for transformers >= 4.57.
+    Creates MockCacheLayer wrappers to provide the expected `layers` interface.
+    \"\"\"
+    if cache is None:
+        return cache"""
+                
+                new_ensure = """def _ensure_cache_has_layers(cache):
+    \"\"\"
+    Ensure the cache object has the appropriate layers and methods for transformers >= 4.57 compatibility.
+    \"\"\"
+    if not NEEDS_CACHE_PATCH or cache is None:
+        return cache"""
+                
+                content = content.replace(old_ensure, new_ensure)
+                
+                # Patch _init_cache_for_generation
+                old_init = """    def _init_cache_for_generation(self, generation_config, model_kwargs, batch_size, max_cache_length, device):
+        \"\"\"
+        Initialize cache for generation, handling different transformers versions.
+        For transformers >= 4.57, returns None to let the model create the cache dynamically.
+        \"\"\"
+        try:
+            from transformers.cache_utils import DynamicCache
+            sig = inspect.signature(DynamicCache.__init__)
+            if 'config' in sig.parameters:
+                # transformers >= 4.57: let model handle cache creation
+                return None
+            else:
+                # Older versions: use parent method
+                prep_sig = inspect.signature(self._prepare_cache_for_generation)
+                if 'device' in prep_sig.parameters:
+                    self._prepare_cache_for_generation(generation_config, model_kwargs, None, batch_size, max_cache_length, device)
+                else:
+                    self._prepare_cache_for_generation(generation_config, model_kwargs, None, batch_size, max_cache_length)
+                return model_kwargs.get("past_key_values")
+        except Exception:
+            return None"""
+                
+                new_init = """    def _init_cache_for_generation(self, generation_config, model_kwargs, batch_size, max_cache_length, device):
+        \"\"\"
+        Initialize cache for generation, handling different transformers versions.
+        \"\"\"
+        if not NEEDS_CACHE_PATCH:
+            prep_sig = inspect.signature(self._prepare_cache_for_generation)
+            if 'device' in prep_sig.parameters:
+                self._prepare_cache_for_generation(generation_config, model_kwargs, None, batch_size, max_cache_length, device)
+            else:
+                self._prepare_cache_for_generation(generation_config, model_kwargs, None, batch_size, max_cache_length)
+            return model_kwargs.get("past_key_values")
+
+        try:
+            from transformers.cache_utils import DynamicCache
+            sig = inspect.signature(DynamicCache.__init__)
+            if 'config' in sig.parameters:
+                return DynamicCache(config=self.config)
+            else:
+                return None
+        except Exception:
+            return None"""
+                
+                content = content.replace(old_init, new_init)
+                
+                with open(inference_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f"   ✅ Patch applicata a {inference_file.name}")
+            else:
+                print(f"   ✅ {inference_file.name} già patchato")
+        except Exception as e:
+            print(f"   ❌ Errore durante il patching di {inference_file.name}: {e}")
+    else:
+        print(f"   ❌ File non trovato: {inference_file}")
+
+    # 2. Patch pyproject.toml
+    pyproject_file = Path(vv_root) / "pyproject.toml"
+    if pyproject_file.exists():
+        print(f"   📝 Patching {pyproject_file.name}...")
+        try:
+            with open(pyproject_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Pin transformers
+            content = content.replace('"transformers>=4.51.3,<5.0.0"', '"transformers==4.51.3"')
+            
+            with open(pyproject_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"   ✅ Patch applicata a {pyproject_file.name}")
+        except Exception as e:
+            print(f"   ❌ Errore durante il patching di {pyproject_file.name}: {e}")
+
+    print("   " + "-"*50)
+
 def setup():
     base_path = Path(__file__).parent.absolute()
     total_steps = 10
@@ -745,6 +899,24 @@ def setup():
         print_step(7, total_steps, "Installazione VibeVoice")
         
         if pip_path.exists() and vv_root.exists():
+
+            # -------------------------------------------------------
+            # FIX COMPATIBILITÀ: Fissa transformers a versione 4.51.3
+            # Le versioni >= 4.57 cambiano il calcolo delle attention mask
+            # e causano un RuntimeError durante la generazione audio.
+            # -------------------------------------------------------
+            print(f"\n   🔒 Fissaggio versione transformers (stabilità VibeVoice)...")
+            transformers_fix, _ = run_command(
+                f'"{pip_path}" install "transformers==4.51.3"',
+                description="Installazione transformers 4.51.3",
+                show_output=True
+            )
+            if transformers_fix:
+                print(f"   ✅ transformers fissato a versione 4.51.3")
+            else:
+                print(f"   ⚠️ Attenzione: impossibile fissare la versione di transformers")
+            # -------------------------------------------------------
+
             # Installa VibeVoice
             success, _ = run_command(
                 f'"{pip_path}" install -e .',
@@ -755,6 +927,8 @@ def setup():
             
             if success:
                 print(f"   ✅ VibeVoice configurato correttamente")
+                # Applica patch di codice dopo l'installazione
+                apply_vibevoice_patches(vv_root)
             else:
                 print(f"   ⚠️ Problemi con l'installazione di VibeVoice")
                 vv_installed = False
